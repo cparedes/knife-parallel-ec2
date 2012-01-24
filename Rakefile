@@ -16,9 +16,9 @@ Jeweler::Tasks.new do |gem|
   # gem is a Gem::Specification... see http://docs.rubygems.org/read/chapter/20 for more options
   gem.name = "knife-parallel-ec2"
   gem.homepage = "http://github.com/cparedes/knife-parallel-ec2"
-  gem.license = "MIT"
-  gem.summary = %Q{TODO: one-line summary of your gem}
-  gem.description = %Q{TODO: longer description of your gem}
+  gem.license = "Apache v2"
+  gem.summary = %Q{Spawn EC2 servers in parallel using Knife.}
+  gem.description = %Q{Spawns EC2 servers in parallel with Knife by using the parallel gem.}
   gem.email = "ian@shopply.com"
   gem.authors = ["Christian Paredes"]
   # dependencies defined in Gemfile
