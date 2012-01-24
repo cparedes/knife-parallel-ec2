@@ -5,6 +5,7 @@ source "http://rubygems.org"
 
 gem "parallel", ">= 0"
 gem "chef", ">= 0.10.0"
+gem "knife-ec2", ">= 0"
 
 # Add dependencies to develop your gem here.
 # Include everything needed to run rake, tests, features, etc.

@@ -2,7 +2,7 @@ require 'chef/knife/ec2_base'
 
 class Chef
   class Knife
-    class ParallelEC2Create < Knife
+    class ParallelEc2ServerCreate < Knife
 
       include Knife::Ec2Base
 
@@ -187,7 +187,7 @@ class Chef
         nodes = []
 
         if config[:chef_node_name] =~ /XX/
-          padded_numbers = (1..num_nodes).to_a.map { |x| x.to_s.rjust(2, '0') }
+          padded_numbers = (1..config[:number_of_nodes]).to_a.map { |x| x.to_s.rjust(2, '0') }
           nodes = padded_numbers.map { |x| config[:chef_node_name].gsub(/XX/, x) }
         end
 
