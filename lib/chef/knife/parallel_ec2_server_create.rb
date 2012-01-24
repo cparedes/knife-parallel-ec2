@@ -2,7 +2,7 @@ require 'chef/knife/ec2_base'
 
 class Chef
   class Knife
-    class ParallelEC2 < Knife
+    class ParallelEC2Create < Knife
 
       include Knife::Ec2Base
 
