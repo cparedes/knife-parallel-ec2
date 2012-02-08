@@ -187,82 +187,120 @@ class Chef
         nodes = []
 
         if config[:chef_node_name] =~ /XX/
-          padded_numbers = (1..config[:number_of_nodes]).to_a.map { |x| x.to_s.rjust(2, '0') }
+          padded_numbers = (1..config[:number_of_nodes].to_i).to_a.map { |x| x.to_s.rjust(2, '0') }
           nodes = padded_numbers.map { |x| config[:chef_node_name].gsub(/XX/, x) }
         end
 
-        results = Parallel.map(nodes, :in_processes => config[:batch_size]) do |node|
-          server = connection.servers.create(create_server_def)
-          msg_pair("Instance ID", server.id)
-          msg_pair("Flavor", server.flavor_id)
-          msg_pair("Image", server.image_id)
-          msg_pair("Region", connection.instance_variable_get(:@region))
-          msg_pair("Availability Zone", server.availability_zone)
-          msg_pair("Security Groups", server.groups.join(", "))
-          msg_pair("SSH Key", server.key_name)
+        servers = Parallel.map(nodes, :in_processes => config[:batch_size].to_i) do |node|
+          connection.servers.create(create_server_def)
+        end
 
-          print "\n#{ui.color("Waiting for server", :magenta)}"
+        # Alright, we have all of our servers in 'servers' - now we provide
+        # all information in one go:
+
+        instance_ids = servers.map { |x| x.id }
+
+        msg_pair("Instance ID's:", instance_ids.join(", "))
+        msg_pair("Flavor", servers.first.flavor_id)
+        msg_pair("Image", servers.first.image_id)
+        msg_pair("Region", connection.instance_variable_get(:@region))
+        msg_pair("Availability Zone", servers.first.availability_zone)
+        msg_pair("Security Groups", servers.first.groups.join(", "))
+        msg_pair("SSH Key", servers.first.key_name)
+
+        # Start another parallel session and wait for each server to get
+        # ready:
+
+        result = Parallel.map(servers, :in_processes => config[:batch_size].to_i) do |server|
+          print "\n#{ui.color("Waiting for server #{server.id}"), :magenta)}"
           server.wait_for { print "."; ready? }
+        end
 
-          puts("\n")
+        puts("\n")
+        server_dns_map = Array.new
 
-          if vpc_mode?
-            msg_pair("Subnet ID", server.subnet_id)
-          else
-            msg_pair("Public DNS Name", server.dns_name)
-            msg_pair("Public IP Address", server.public_ip_address)
-            msg_pair("Private DNS Name", server.private_dns_name)
+        if vpc_mode?
+          server_dns_map = servers.map { |x|
+            {
+              "ID" => x.id,
+              "Subnet ID" => x.subnet_id,
+              "Private IP Address" => x.private_ip_address
+            }
+          }
+        else
+          server_dns_map = servers.map { |x|
+            {
+              "ID"                 => x.id,
+              "Public DNS Name"    => x.dns_name,
+              "Public IP Address"  => x.public_ip_address,
+              "Private DNS Name"   => x.private_dns_name,
+              "Private IP Address" => x.private_ip_address
+            }
+          }
+        end
+
+        server_dns_map.each do |server|
+          server.each do |k, v|
+            msg_pair(k, v)
           end
-          msg_pair("Private IP Address", server.private_ip_address)
+        end
 
-          print "\n#{ui.color("Waiting for sshd", :magenta)}"
+        # Check for sshd connectivity against all machines before
+        # moving on:
 
-          fqdn = vpc_mode? ? server.private_ip_address : server.dns_name
+        print "\n#{ui.color("Waiting for sshd", :magenta)}"
 
+        # Use nodes.length (and convert into an array of integers) -
+        # this is to coordinate usage of servers/nodes variables together,
+        # so that we can bootstrap the node appropriately.
+
+        result = Parallel.map(nodes.length.times.to_a, :in_processes => config[:batch_size].to_i) do |num|
+          fqdn = vpc_mode? ? servers[num].private_ip_address : servers[num].dns_name
           print(".") until tcp_test_ssh(fqdn) {
             sleep @initial_sleep_delay ||= (vpc_mode? ? 40 : 10)
-            puts("done")
+            puts("#{servers[num].id} ready")
           }
 
-          bootstrap_for_node(server,fqdn,node).run
+          bootstrap_for_node(servers[num], fqdn, nodes[num])
+        end
 
-          puts "\n"
-          msg_pair("Instance ID", server.id)
-          msg_pair("Flavor", server.flavor_id)
-          msg_pair("Image", server.image_id)
-          msg_pair("Region", connection.instance_variable_get(:@region))
-          msg_pair("Availability Zone", server.availability_zone)
-          msg_pair("Security Groups", server.groups.join(", "))
-          msg_pair("SSH Key", server.key_name)
-          msg_pair("Root Device Type", server.root_device_type)
+        # Output the information in one go:
 
-          if server.root_device_type == "ebs"
-            device_map = server.block_device_mapping.first
-            msg_pair("Root Volume ID", device_map['volumeId'])
-            msg_pair("Root Device Name", device_map['deviceName'])
-            msg_pair("Root Device Delete on Terminate", device_map['deleteOnTermination'])
+        puts "\n"
+        msg_pair("Instance ID's", servers.map { |x| x.id }.join(", "))
+        msg_pair("Flavor", servers.first.flavor_id)
+        msg_pair("Image", servers.first.image_id)
+        msg_pair("Region", connection.instance_variable_get(:@region))
+        msg_pair("Availability Zone", servers.first.availability_zone)
+        msg_pair("Security Groups", servers.first.groups.join(", "))
+        msg_pair("SSH Key", servers.first.key_name)
+        msg_pair("Root Device Type", servers.first.root_device_type)
 
-            if config[:ebs_size]
-              if ami.block_device_mapping.first['volumeSize'].to_i < config[:ebs_size].to_i
-                volume_too_large_warning = "#{config[:ebs_size]}GB " +
-                            "EBS volume size is larger than size set in AMI of " +
-                            "#{ami.block_device_mapping.first['volumeSize']}GB.\n" +
-                            "Use file system tools to make use of the increased volume size."
-                msg_pair("Warning", volume_too_large_warning, :yellow)
-              end
+        if servers.first.root_device_type == "ebs"
+          device_map = servers.first.block_device_mapping.first
+          msg_pair("Root Volume ID", device_map['volumeId'])
+          msg_pair("Root Device Name", device_map['deviceName'])
+          msg_pair("Root Device Delete on Terminate", device_map['deleteOnTermination'])
+
+          if config[:ebs_size]
+            if ami.block_device_mapping.first['volumeSize'].to_i < config[:ebs_size].to_i
+              volume_too_large_warning = "#{config[:ebs_size]}GB " +
+                          "EBS volume size is larger than size set in AMI of " +
+                          "#{ami.block_device_mapping.first['volumeSize']}GB.\n" +
+                          "Use file system tools to make use of the increased volume size."
+              msg_pair("Warning", volume_too_large_warning, :yellow)
             end
           end
-          if vpc_mode?
-            msg_pair("Subnet ID", server.subnet_id)
-          else
-            msg_pair("Public DNS Name", server.dns_name)
-            msg_pair("Public IP Address", server.public_ip_address)
-            msg_pair("Private DNS Name", server.private_dns_name)
-          end
-          msg_pair("Private IP Address", server.private_ip_address)
-          msg_pair("Environment", config[:environment] || '_default')
-          msg_pair("Run List", config[:run_list].join(', '))
         end
+
+        server_dns_map.each do |server|
+          server.each do |k, v|
+            msg_pair(k, v) unless k == "ID"
+          end
+        end
+
+        msg_pair("Environment", config[:environment] || '_default')
+        msg_pair("Run List", config[:run_list].join(', '))
       end
 
       def bootstrap_for_node(server,fqdn,node_name=nil)
