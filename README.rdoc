@@ -1,6 +1,11 @@
 = knife-parallel-ec2
 
-Description goes here.
+NOTE: this knife plugin isn't ready for prime time yet. Needs testing and
+more development.
+
+Uses the 'parallel' gem for bootstrapping multiple similar EC2 servers at the
+same time. I've created this knife plugin in order to scratch my own itch:
+bootstrapping many, identical worker servers for elastic workloads.
 
 == Contributing to knife-parallel-ec2
  
